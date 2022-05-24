@@ -1,0 +1,23 @@
+{
+	"type": "Standard",
+	"name": "TemporalSeriesPlugin",
+	"icon": ":/CC/plugin/TemporalSeriesPlugin/images/icon.png",
+	"description": "This plugin compares two points clouds using the fractal dimension of both clouds",
+	"authors": [
+		{
+			"name": "Juan Carlos Casas Rosa",
+			"email": "jccasas@ujaen.es"
+		}
+	],
+	"maintainers": [
+		{
+			"name": "Juan Carlos Casas Rosa",
+			"email": "jccasas@ujaen.es"
+		}
+	],
+	"references": [
+		{
+			"text": "Plugin created and developed in the GGGJ (TIC-144) from the University of Jaén"
+		}
+	]
+}
