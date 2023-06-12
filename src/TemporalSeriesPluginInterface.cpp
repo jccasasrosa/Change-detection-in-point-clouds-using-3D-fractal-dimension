@@ -1,6 +1,6 @@
 #include "TemporalSeriesPluginInterface.h"
 
-TemporalSeriesPluginInterface::TemporalSeriesPluginInterface(QWidget *parent)
+TemporalSeriesPluginInterface::TemporalSeriesPluginInterface(QWidget* parent)
     : ccOverlayDialog(parent)
     , ui(new Ui::TemporalSeriesPluginInterface)
 {

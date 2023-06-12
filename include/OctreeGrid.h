@@ -4,7 +4,7 @@
 #include <ccPointCloud.h>
 #include <ccPolyline.h>
 #include <ccMainAppInterface.h>
-#define CELL_SIZE 100
+#define CELL_SIZE 50
 
 
 //Hash function of our octree grid
@@ -22,8 +22,10 @@ namespace glm {
 
 class OctreeGrid {
 private:
-	std::unordered_map<glm::ivec3, Octree*, glm::ivec3Hash> _octrees;	//Sparse grid of octrees
+	std::unordered_map<glm::ivec3, Octree*, glm::fvec3Hash> _octrees;	//Sparse grid of octrees
 	float _cellSize;	//Size of each cell
+	int _minimumNumberOfPointsPerNode;	//Minimum number of points per node
+	int _maxDepthLevel;	//Maximum octree depth level
 	std::vector<glm::dvec3> _boundingBox;	//Bounding box of the point cloud 
 	bool _octreeButtonToggled;
 	bool _nodeButtonToggled;
@@ -42,11 +44,11 @@ private:
 
 public:
 	OctreeGrid();
-	OctreeGrid(float cellSize);
+	OctreeGrid(float cellSize, int minimumNumberOfPointsPerNode, int maxDepthLevel);
 	void computeBoundingBox(const std::vector<glm::vec3>& pointsPositions);
-	const std::string& loadOctreeGrid(const std::vector<glm::vec3>& pointsPositions, const std::vector<glm::vec3>& pointsColors, const unsigned int& numberOfClouds, const unsigned int& subcloud);
+	void loadOctreeGrid(const std::vector<glm::vec3>& pointsPositions, const std::vector<glm::vec3>& pointsColors, const unsigned int& numberOfClouds, const unsigned int& subcloud);
 	const std::vector<glm::dvec3>& getBoundingBoxVector();
-	const std::unordered_map<glm::ivec3, Octree*, glm::ivec3Hash>& getOctreeGrid();
+	const std::unordered_map<glm::ivec3, Octree*, glm::fvec3Hash>& getOctreeGrid();
 	void completeSubdivide();
 	const bool& getOctreeButtonState();
 	const bool& getNodeButtonState();
@@ -59,6 +61,7 @@ public:
 	void auxComputeVisualization(std::vector<ccPointCloud*>* pointCloudVector, std::vector<ccPolyline*>* polilyneVector, const std::vector<glm::dvec3>& boundingBoxVector, const ccColor::Rgba& color);
 	void computeOctreeVisualization();
 	void computeNodeVisualization(Node* node);
+	void computeChildVisualization(Node* node);
 
 	void fillOctreesVector();
 
@@ -68,6 +71,5 @@ public:
 	void changeNodesVisibility(const bool& state);
 
 
-	void storeOctrees();
 
 };

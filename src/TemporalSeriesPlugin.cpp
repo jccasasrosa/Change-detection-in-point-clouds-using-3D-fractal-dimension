@@ -52,12 +52,22 @@ TemporalSeriesPlugin::TemporalSeriesPlugin( QObject *parent )
 // depending on the currently selected entities ('selectedEntities').
 void TemporalSeriesPlugin::onNewSelection( const ccHObject::Container &selectedEntities )
 {
-	if ( m_action == nullptr )
+/**	if ( m_action == nullptr )
 	{
 		return;
 	}
 	
 	m_action->setEnabled( true );
+*/
+
+	if (m_action)
+	{
+		m_action->setEnabled(selectedEntities.size() == 2
+			&& selectedEntities[0]->isA(CC_TYPES::POINT_CLOUD)
+			&& selectedEntities[1]->isA(CC_TYPES::POINT_CLOUD));
+	}
+
+	m_selectedEntities = selectedEntities;
 }
 
 // This method returns all the 'actions' your plugin can perform.
@@ -73,20 +83,18 @@ QList<QAction *> TemporalSeriesPlugin::getActions()
 		
 
 		_temporalSeriesPluginInterface = new TemporalSeriesPluginInterface((QWidget*)m_app->getMainWindow());
+		_temporalSeriesPreviewWindow = new TemporalSeriesPreviewWindow((QWidget*)m_app->getMainWindow());
 
-		/**
-		_temporalSeriesPluginInterface->horizontalSlider->setMinimum(0);
-		_temporalSeriesPluginInterface->horizontalSlider->setMaximum(8);
-		_temporalSeriesPluginInterface->horizontalSlider->setValue(4);
-		_temporalSeriesPluginInterface->horizontalSlider->setTickPosition(QSlider::TicksBothSides);
-		*/
 
 		// Connect appropriate signal
-		connect( m_action, &QAction::triggered, this, [this]()
-		{
-			TemporalSeriesPluginAction::performActionA( m_app, _temporalSeriesPluginInterface );
-		});
+		connect(m_action, &QAction::triggered, this, [this]()
+			{
+				TemporalSeriesPluginAction::performActionA(m_app, _temporalSeriesPluginInterface, _temporalSeriesPreviewWindow);
+			});
 
+
+
+		//Octrees and nodes interface
 		connect(_temporalSeriesPluginInterface->toolButton, &QAbstractButton::toggled, this, [this]()
 			{
 				TemporalSeriesPluginAction::octreeButtonAction(m_app);
@@ -97,14 +105,16 @@ QList<QAction *> TemporalSeriesPlugin::getActions()
 				TemporalSeriesPluginAction::nodeButtonAction(m_app);
 			});
 
-		/**
-		connect(_temporalSeriesPluginInterface->horizontalSlider, &QAbstractSlider::valueChanged, this, [this]()
+		connect(_temporalSeriesPluginInterface->toolButton_3, &QAbstractButton::toggled, this, [this]()
 			{
-				TemporalSeriesPluginAction::sliderChanged(m_app, _temporalSeriesPluginInterface->horizontalSlider);
+				TemporalSeriesPluginAction::closeButtonAction(m_app, _temporalSeriesPluginInterface);
 			});
-		*/
+
+
+		
 	}
 
 	return { m_action };
 }
+
 

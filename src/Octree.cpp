@@ -13,13 +13,15 @@ Octree::Octree()
 /**
 *	@brief Parameterized constructor
 */
-Octree::Octree(Node* rootNode, float cellSize, const glm::ivec3& coordinates)
+Octree::Octree(Node* rootNode, float cellSize, const glm::dvec3& coordinates, int minimumNumberOfPointsPerNode, int maxDepthLevel)
 {
 	_rootNode = rootNode;
 	_coordinates = coordinates;
 	_cellSize = cellSize;
-	_boundingBox.push_back(glm::vec3(coordinates.x * _cellSize, coordinates.y * _cellSize, coordinates.z * _cellSize));
-	_boundingBox.push_back(glm::vec3((coordinates.x *_cellSize) + _cellSize, (coordinates.y*_cellSize) + _cellSize, (coordinates.z * _cellSize) + _cellSize));
+	_minimumNumberOfPointsPerNode = minimumNumberOfPointsPerNode;
+	_maxDepthLevel = maxDepthLevel;
+	_boundingBox.push_back(glm::dvec3(coordinates.x * _cellSize, coordinates.y * _cellSize, coordinates.z * _cellSize));
+	_boundingBox.push_back(glm::dvec3((coordinates.x *_cellSize) + _cellSize, (coordinates.y*_cellSize) + _cellSize, (coordinates.z * _cellSize) + _cellSize));
 }
 
 /**
@@ -61,17 +63,8 @@ Node* Octree::getRootNode()
 */
 void Octree::computeCountingBox()
 {
-	_rootNode->computeCountingBox();
+	_rootNode->assignCountingBox(_rootNode);
 }
-
-/**
-*	@brief Apply the counting box algorithm to the childres of the root node
-*/
-void Octree::computeCountingBoxChildren()
-{
-	_rootNode->computeCountingBoxChildren();
-}
-
 /**
 *	@brief Get the difference between the fractal dimension of different point clouds
 */
@@ -97,13 +90,11 @@ bool Octree::areCloudsComparable()
 	return _rootNode->areCloudsComparable();
 }
 
-
-/**
-*	@brief Store the poins from both clouds from the octree in the file system
-*/
-void Octree::storeOctree(int index)
+void Octree::setRootNodeCorners()
 {
-	_rootNode->storePoints(index);
+	_rootNode->computeBoundingBox();
+	std::vector<glm::dvec3> bboxRootNode = _rootNode->getBoundingBoxVector();
+	_rootNode->setCorners(bboxRootNode[0], bboxRootNode[1]);
 }
 
 

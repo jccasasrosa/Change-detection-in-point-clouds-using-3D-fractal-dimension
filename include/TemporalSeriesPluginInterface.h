@@ -14,10 +14,10 @@ class TemporalSeriesPluginInterface : public ccOverlayDialog, public Ui::Tempora
     Q_OBJECT
 
 public:
-    explicit TemporalSeriesPluginInterface(QWidget *parent = nullptr);
+    explicit TemporalSeriesPluginInterface(QWidget* parent = nullptr);
     ~TemporalSeriesPluginInterface();
 
 private:
-    Ui::TemporalSeriesPluginInterface *ui;
+    Ui::TemporalSeriesPluginInterface* ui;
 };
 #endif // TEMPORALSERIESPLUGININTERFACE_H

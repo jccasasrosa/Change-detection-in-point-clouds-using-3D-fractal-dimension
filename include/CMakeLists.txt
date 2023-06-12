@@ -7,6 +7,7 @@ target_sources( ${PROJECT_NAME}
 		${CMAKE_CURRENT_LIST_DIR}/OctreeGrid.h
 		${CMAKE_CURRENT_LIST_DIR}/TemporalSeriesPlugin.h
 		${CMAKE_CURRENT_LIST_DIR}/TemporalSeriesPluginInterface.h
+		${CMAKE_CURRENT_LIST_DIR}/TemporalSeriesPreviewWindow.h
 )
 
 target_include_directories( ${PROJECT_NAME}

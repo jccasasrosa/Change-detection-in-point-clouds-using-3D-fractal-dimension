@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>261</width>
+    <width>340</width>
     <height>53</height>
    </rect>
   </property>
@@ -40,6 +40,27 @@
    </property>
    <property name="text">
     <string>Nodes</string>
+   </property>
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QToolButton" name="toolButton_3">
+   <property name="geometry">
+    <rect>
+     <x>270</x>
+     <y>20</y>
+     <width>61</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <bold>true</bold>
+    </font>
+   </property>
+   <property name="text">
+    <string>X</string>
    </property>
    <property name="checkable">
     <bool>true</bool>

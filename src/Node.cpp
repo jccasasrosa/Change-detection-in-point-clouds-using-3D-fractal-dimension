@@ -19,12 +19,19 @@ Node::Node() {
 /**
 *	@brief Parameterized constructor
 */
-Node::Node(Node* parent, float cellSize, const unsigned int& numberOfSubclouds, int level)
+Node::Node(Node* parent, float cellSize, const unsigned int& numberOfSubclouds, int level, 
+	int minimumNumberOfPointsPerNode, int maxDepthLevel, glm::ivec3 coordinates, double squareDim)
 {
 	_parent = parent;
 	_cellSize = cellSize;
 	_numberOfSubclouds = numberOfSubclouds;
 	_level = level;
+	_minimumNumberOfPointsPerNode = minimumNumberOfPointsPerNode;
+	_maxDepthLevel = maxDepthLevel;
+	_coordinates = coordinates;
+	_squareDim = squareDim;
+	//_minCorner = minCorner;
+	//_maxCorner = maxCorner;
 
 	for (int i = 0; i < numberOfSubclouds; ++i) {
 		_clouds.push_back(new ccPointCloud());
@@ -36,6 +43,15 @@ Node::Node(Node* parent, float cellSize, const unsigned int& numberOfSubclouds, 
 	_boxCounting.resize(numberOfSubclouds);
 	for (int i = 0; i < numberOfSubclouds; ++i) {
 		_boxCounting[i].resize(MAX_BOX_COUNTING_RESOLUTION);
+	}
+	for (int i = 0; i < numberOfSubclouds; ++i) {
+		for (int j = 0; j < MAX_BOX_COUNTING_RESOLUTION; ++j) {
+			_boxCounting[i][j] = 0;
+		}
+	}
+	_squareDimVectorInverseLogarithm.resize(MAX_BOX_COUNTING_RESOLUTION);
+	for (int i = 0; i < MAX_BOX_COUNTING_RESOLUTION; ++i) {
+		_squareDimVectorInverseLogarithm[i] = 0;
 	}
 	_fractalDim0 = 0;
 	_fractalDim1 = 0;
@@ -49,20 +65,21 @@ Node::Node(Node* parent, float cellSize, const unsigned int& numberOfSubclouds, 
 */
 void Node::computeBoundingBox()
 {
-	_boundingBox.push_back(glm::vec3(FLT_MAX, FLT_MAX, FLT_MAX));	//Min values
-	_boundingBox.push_back(glm::vec3(FLT_MIN, FLT_MIN, FLT_MIN));	//Max values
-	const CCVector3* point = NULL;
+	
+	_boundingBox.push_back(glm::fvec3(MAXINT32, MAXINT32, MAXINT32));	//Min values
+	_boundingBox.push_back(glm::fvec3(MININT32, MININT32, MININT32));	//Max values
 
-	long pointCount = 0;
+	_numberOfPoints = _clouds[0]->size() + _clouds[1]->size();
 	
 	for (int i = 0; i < _clouds.size(); ++i) {
 		for (int j = 0; j < _clouds[i]->size(); ++j) {
 
-			point = _clouds[i]->getPoint(j);
+			auto point = _clouds[i]->getPoint(j);
 
 			if (point->x < _boundingBox[0].x) {
 				_boundingBox[0].x = point->x;
 			}
+
 			if (point->x > _boundingBox[1].x) {
 				_boundingBox[1].x = point->x;
 			}
@@ -81,9 +98,13 @@ void Node::computeBoundingBox()
 				_boundingBox[1].z = point->z;
 			}
 		}
-		pointCount += _clouds[i]->size();
 	}
-	_numberOfPoints = pointCount;
+	
+
+	
+
+
+	
 }
 
 /**
@@ -97,7 +118,8 @@ void Node::addPointsToCloud(const std::vector<glm::vec3>& pointPosition, const s
 		_clouds[subcloud]->reserveTheRGBTable();
 		_clouds[subcloud]->toggleColors();
 		_clouds[subcloud]->setVisible(true);
-
+		QString name = "[" + QString::number(_coordinates.x) + "-" + QString::number(_coordinates.y) + "-" + QString::number(_coordinates.z) + "] level " + QString::number(_level);
+		_clouds[subcloud]->setName(name);
 		_numberOfPoints = pointPosition.size();
 
 		for (int i = 0; i < pointPosition.size(); ++i) {
@@ -111,6 +133,7 @@ void Node::addPointsToCloud(const std::vector<glm::vec3>& pointPosition, const s
 
 	
 			_appInterface->addToDB(_clouds[subcloud]);
+
 	}
 }
 
@@ -120,8 +143,9 @@ void Node::addPointsToCloud(const std::vector<glm::vec3>& pointPosition, const s
 int Node::computeChildrenIndex(const glm::vec3& pointPosition)
 {
 	int index = 0;
-	glm::vec3 center = glm::vec3((_boundingBox[0].x + _boundingBox[1].x) / 2, (_boundingBox[0].y + _boundingBox[1].y) / 2, (_boundingBox[0].z + _boundingBox[1].z) / 2);
-
+	//glm::dvec3 center = glm::vec3((_boundingBox[0].x + _boundingBox[1].x) / 2, (_boundingBox[0].y + _boundingBox[1].y) / 2, (_boundingBox[0].z + _boundingBox[1].z) / 2);
+	//glm::dvec3 center = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, (_minCorner.y + _maxCorner.y) / 2, (_minCorner.z + _maxCorner.z) / 2);
+	glm::dvec3 center = (_minCorner + _maxCorner) * 0.5;
 
 	if (pointPosition.x > center.x) {
 		if (pointPosition.y > center.y) {
@@ -160,76 +184,166 @@ int Node::computeChildrenIndex(const glm::vec3& pointPosition)
 		}
 	}
 
+	//glm::dvec3 childrenBoxSize = 0.5 * (_maxCorner - _minCorner);
+	//glm::ivec3 octant = (glm::ivec3)(((glm::dvec3)pointPosition - _minCorner) / childrenBoxSize);
+
+	//return (octant.z << 2) | (octant.y << 1) | octant.x;
+
+
 	return index;
 
 }
+
+void Node::setCorners(const glm::dvec3& minCorner, const glm::dvec3& maxCorner)
+{
+	_minCorner = minCorner;
+	_maxCorner = maxCorner;
+}
+
+Box Node::computeCorners(int childrenIndex)
+{
+	Box corners;
+
+
+	switch (childrenIndex)
+	{
+	case 0:
+		corners.first = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, (_minCorner.y + _maxCorner.y) / 2, (_minCorner.z + _maxCorner.z) / 2);
+		corners.second = glm::dvec3(_maxCorner.x,  _maxCorner.y, _maxCorner.z);
+		break;
+	case 1:
+		corners.first = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, (_minCorner.y + _maxCorner.y) / 2, _minCorner.z);
+		corners.second = glm::dvec3(_maxCorner.x, _maxCorner.y, (_minCorner.z + _maxCorner.z) / 2);
+		break;
+	case 2:
+		corners.first = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, _minCorner.y, (_minCorner.z + _maxCorner.z) / 2);
+		corners.second = glm::dvec3(_maxCorner.x, (_minCorner.y + _maxCorner.y) / 2, _maxCorner.z);
+		break;
+	case 3:
+		corners.first = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, _minCorner.y, _minCorner.z);
+		corners.second = glm::dvec3(_maxCorner.x, (_minCorner.y + _maxCorner.y) / 2, (_minCorner.z + _maxCorner.z) / 2);
+		break;
+	case 4:
+		corners.first = glm::dvec3(_minCorner.x, (_minCorner.y + _maxCorner.y) / 2, (_minCorner.z + _maxCorner.z) / 2);
+		corners.second = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, _maxCorner.y, _maxCorner.z);
+		break;
+	case 5:
+		corners.first = glm::dvec3(_minCorner.x, (_minCorner.y + _maxCorner.y) / 2, _minCorner.z);
+		corners.second = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, _maxCorner.y, (_minCorner.z + _maxCorner.z) / 2);
+		break;
+	case 6:
+		corners.first = glm::dvec3(_minCorner.x, _minCorner.y, (_minCorner.z + _maxCorner.z) / 2);
+		corners.second = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, (_minCorner.y + _maxCorner.y) / 2, _maxCorner.z);
+		break;
+	case 7:
+		corners.first = glm::dvec3(_minCorner.x, _minCorner.y, _minCorner.z);
+		corners.second = glm::dvec3((_minCorner.x + _maxCorner.x) / 2, (_minCorner.y + _maxCorner.y) / 2, (_minCorner.z + _maxCorner.z) / 2);
+		break;
+	default:
+		break;
+	}
+
+	//glm::dvec3 childrenBoxSize = 0.5 * (_maxCorner - _minCorner);
+	//glm::vec3 octant(childrenIndex >> 2, (childrenIndex >> 1) & 1, childrenIndex & 1);
+
+	//Box cornersX;
+	//cornersX.first = _minCorner + octant * childrenBoxSize;
+	//cornersX.second = cornersX.first + childrenBoxSize;
+
+	return corners;
+}
+
+
+
+glm::dvec3* Node::getMinCorner()
+{
+	return &_minCorner;
+}
+
+glm::dvec3* Node::getMaxCorner()
+{
+	return &_maxCorner;
+}
+
+
 
 /**
 *	@brief Subdivide once both clouds are loaded
 */
 void Node::completeSubdivide()
 {
-
-	const CCVector3* point = NULL;
-	const ccColor::Rgba* color = NULL;
-
-	std::vector<std::vector <std::vector<glm::vec3> > >pointAuxVector;
-	pointAuxVector.resize(2);
-	for (int i = 0; i < 2; ++i) {
-		pointAuxVector[i].resize(8);
-	}
-
-	std::vector<std::vector<std::vector<glm::vec3> > >colorAuxVector;
-	colorAuxVector.resize(2);
-	for (int i = 0; i < 2; ++i) {
-		colorAuxVector[i].resize(8);
-	}
-
-	for (int i = 0; i < _numberOfSubclouds; ++i) {
-		for (int j = 0; j < _clouds[i]->size(); ++j) {
-
-			point = _clouds[i]->getPoint(j);
-			color = &(_clouds[i]->getPointColor(j));
-
-			glm::vec3 coord(point->x, point->y, point->z);
-			glm::vec3 colorPoint(color->r, color->g, color->b);
-
-			int index = computeChildrenIndex(coord);
-
-			pointAuxVector[i][index].push_back(coord);
-			colorAuxVector[i][index].push_back(colorPoint);
-		}
-	}
-
+	unsigned int origCloudAsize = _clouds[0]->size();
+	unsigned int origCloudBsize = _clouds[1]->size();
+	if ((origCloudAsize > _minimumNumberOfPointsPerNode) && (origCloudBsize > _minimumNumberOfPointsPerNode) && (_level + 1 <= _maxDepthLevel)) {
 		
-	
-	for (int i = 0; i < 8; ++i) {
-		unsigned int cloudASize = pointAuxVector[0][i].size();
-		unsigned int cloudBSize = pointAuxVector[1][i].size();
-		if ((cloudASize > MIN_NUMBER_OF_POINTS_PER_NODE) && (cloudBSize > MIN_NUMBER_OF_POINTS_PER_NODE)) {
-			Node* newChild = new Node(this, _cellSize, _numberOfSubclouds, _level + 1);
+		//Asignation of values to the childrens
+		const CCVector3* point = NULL;
+		const ccColor::Rgba* color = NULL;
+
+		std::vector<std::vector <std::vector<glm::vec3> > >pointAuxVector;
+		pointAuxVector.resize(2);
+		for (int i = 0; i < 2; ++i) {
+			pointAuxVector[i].resize(8);
+		}
+
+		std::vector<std::vector<std::vector<glm::vec3> > >colorAuxVector;
+		colorAuxVector.resize(2);
+		for (int i = 0; i < 2; ++i) {
+			colorAuxVector[i].resize(8);
+		}
+
+		for (int i = 0; i < _numberOfSubclouds; ++i) {
+			for (int j = 0; j < _clouds[i]->size(); ++j) {
+
+				point = _clouds[i]->getPoint(j);
+				color = &(_clouds[i]->getPointColor(j));
+
+				glm::vec3 coord(point->x, point->y, point->z);
+				glm::vec3 colorPoint(color->r, color->g, color->b);
+
+				int index = computeChildrenIndex(coord);
+
+				pointAuxVector[i][index].push_back(coord);
+				colorAuxVector[i][index].push_back(colorPoint);
+			}
+		}
+
+		_clouds[0]->setVisible(false);
+		_clouds[1]->setVisible(false);
+		
+		bool cloudSubdivided = false;
+		for (int i = 0; i < 8; ++i) {
+			
+			unsigned int cloudASize = pointAuxVector[0][i].size();
+			unsigned int cloudBSize = pointAuxVector[1][i].size();
+			Box corners = computeCorners(i);
+			Node* newChild = new Node(this, _cellSize, _numberOfSubclouds, _level + 1, _minimumNumberOfPointsPerNode, _maxDepthLevel, _coordinates, (_squareDim / 2));
+			newChild->setCorners(corners.first, corners.second);
 			newChild->setAppinterface(_appInterface);
 			newChild->addPointsToCloud(pointAuxVector[0][i], colorAuxVector[0][i], 0);
 			newChild->addPointsToCloud(pointAuxVector[1][i], colorAuxVector[1][i], 1);
 			newChild->computeBoundingBox();
-			newChild->completeSubdivide();
 			_childrens.push_back(newChild);
+
+			if ((cloudASize > _minimumNumberOfPointsPerNode) && (cloudBSize > _minimumNumberOfPointsPerNode)) {
+				newChild->completeSubdivide();
+				cloudSubdivided = true;
+			}
+			
+		}
+		if (cloudSubdivided) {
+			_clouds[0]->clear();
+			_clouds[1]->clear();
 		}
 	}
-
-	if (_childrens.size() == 8) {
-		_clouds[0]->setVisible(false);
-		_clouds[1]->setVisible(false);
-	}
-	
 }
 
 /**
 *	@brief Get all the childrens of a node
 */
-const std::vector<Node*>& Node::getChildrens()
+std::vector<Node*>* Node::getChildrens()
 {
-	return _childrens;
+	return &_childrens;
 }
 
 /**
@@ -261,121 +375,156 @@ std::vector<ccPointCloud*>* Node::getClouds()
 /**
 *	@brief Function to apply the counting box algorithm to a node
 */
-void Node::computeCountingBox()
+void Node::computeCountingBox(Node* node)
 {
-	if ((_clouds[0]->size() > 0) && (_clouds[1]->size() > 0)) {
 
-		_areComparable = true;	//In this case, both clouds are comparable
+	node->setComparable(true);
+	std::vector<ccPointCloud*>* nodeClouds = node->getClouds();
+	ccPointCloud* cloud0 = (*nodeClouds)[0];
+	ccPointCloud* cloud1 = (*nodeClouds)[1];
+	double squareDim = node->getSquareDim();
+	auto bbox = node->getBoundingBoxVector();
 
+	std::vector <double> squareDimVector;
 
-		double originalBoxDimX = abs(_boundingBox[1].x - _boundingBox[0].x);
-		double originalBoxDimY = abs(_boundingBox[1].y - _boundingBox[0].y);
-		double originalBoxDimZ = abs(_boundingBox[1].z - _boundingBox[0].z);
+	for (int i = 1; i <= MAX_BOX_COUNTING_RESOLUTION; ++i) {
 
-		double squareDim = originalBoxDimX > originalBoxDimY ? originalBoxDimX : originalBoxDimY;
-		squareDim = squareDim > originalBoxDimZ ? squareDim : originalBoxDimZ;
+		double boxDim = squareDim / (NUMBER_OF_SUBDIVISIONS * i);
+		squareDimVector.push_back(boxDim);
 
-		std::vector <double> squareDimVector;
+		for (int j = 0; j < nodeClouds->size(); ++j) {
 
-		for (int i = 1; i <= MAX_BOX_COUNTING_RESOLUTION; ++i) {
+			std::unordered_set<int> box_hash;	//Create spatial hash for boxes
+			box_hash.reserve((*nodeClouds)[j]->size());	//Reserve space for all the points in the cloud
 
-			double boxDim = squareDim / (NUMBER_OF_SUBDIVISIONS * i);
-			squareDimVector.push_back(boxDim);
-
-			for (int j = 0; j < _clouds.size(); ++j) {
-
-				std::unordered_set<int> box_hash;	//Create spatial hash for boxes
-				box_hash.reserve(_clouds[j]->size());	//Reserve space for all the points in the cloud
-
-				for (int k = 0; k < _clouds[j]->size(); ++k) {	//Iterate through the points
-
-					double coordX = _clouds[j]->getPoint(k)->x - _boundingBox[0].x;
-					double coordY = _clouds[j]->getPoint(k)->y - _boundingBox[0].y;
-					double coordZ = _clouds[j]->getPoint(k)->z - _boundingBox[0].z;
+			for (int k = 0; k < (*nodeClouds)[j]->size(); ++k) {	//Iterate through the points
 
 
-					//Generate key
-					int key = ((int)(coordX / boxDim) << 20) |
-						((int)(coordY / boxDim) << 10) |
-						(int)(coordZ / boxDim);
+				glm::ivec3 coord = (glm::dvec3((*nodeClouds)[j]->getPoint(k)->x, (*nodeClouds)[j]->getPoint(k)->y, (*nodeClouds)[j]->getPoint(k)->z) - bbox[0]) / boxDim;
 
-					//Insert key in the spatial hash
-					box_hash.insert(key);
-				}
-				_boxCounting[j][i - 1] = box_hash.size();	//[subcloud][resolution]
+				//Generate key
+				int key = (coord.x << 20) | (coord.y << 10) | coord.z;
+
+				//Insert key in the spatial hash
+				box_hash.insert(key);
 			}
+			//_boxCounting[j][i - 1] = box_hash.size();	//[subcloud][resolution]
+			node->setBoxCountingValue(j, i - 1, box_hash.size());
+		}
+	}
+
+	for (int i = 0; i < MAX_BOX_COUNTING_RESOLUTION; ++i) {
+		double squareDimValue = log((1 / squareDimVector[i]));
+		if (squareDimValue == INFINITY) {
+			squareDimValue = 0;
 		}
 
-		//Creation and computation of the logarithm of each element
+		//_squareDimVectorInverseLogarithm[i] = squareDimValue;
+		node->setSquareDimVectorInverseLogarithmValue(i, squareDimValue);
+	}
 
+
+}
+
+void Node::assignCountingBox(Node* node)
+{
+
+
+	std::vector<ccPointCloud*>* nodeClouds = node->getClouds();
+	ccPointCloud* cloud0 = (*nodeClouds)[0];
+	ccPointCloud* cloud1 = (*nodeClouds)[1];
+
+	if ((cloud0->isVisible()) && (cloud1->isVisible()) && (cloud0->size() > 0) && (cloud1->size() > 0)) {
+		computeCountingBox(node);
+	}
+	else {
+		std::vector<Node*>* nodeChildrens = node->getChildrens();
+		for (int i = 0; i < nodeChildrens->size(); ++i) {
+			assignCountingBox((*nodeChildrens)[i]);
+		}
+
+		for (int i = 0; i < node->getNumberOfSubclouds(); ++i) {
+			unsigned int nonEmptyChildrens = 0;
+			for (int j = 0; j < nodeChildrens->size(); ++j) {
+				if (getBoxCountingValue((*nodeChildrens)[j], i, 0) != 0) {
+					++nonEmptyChildrens;
+				}
+			}
+			node->setBoxCountingValue(i, 0, nonEmptyChildrens);
+		}
+		node->setSquareDimVectorInverseLogarithmValue(0, node->getSquareDim());
+
+
+		for (int i = 0; i < node->getNumberOfSubclouds(); ++i) {
+			unsigned int childrenBoxes = 0;
+			double squareDimValue = 0;
+			for (int j = 1; j < MAX_BOX_COUNTING_RESOLUTION; ++j) {
+				for (int k = 0; k < nodeChildrens->size(); ++k) {
+					childrenBoxes += getBoxCountingValue((*nodeChildrens)[k], i, j - 1);
+				}
+				node->setBoxCountingValue(i, j, childrenBoxes);
+				double previousValue = node->getSquareDimVectorInverseLogarithmValue(node, j - 1);
+				node->setSquareDimVectorInverseLogarithmValue(j, previousValue/2);
+			}
+		}
+	}
+
+	if ((cloud0->size() > 0) && (cloud1->size() > 0)){
 		std::vector<std::vector<double> > boxCountingLogarithm;
-		boxCountingLogarithm.resize(_numberOfSubclouds);
-		for (int i = 0; i < _numberOfSubclouds; ++i) {
+		boxCountingLogarithm.resize(node->getNumberOfSubclouds());
+		for (int i = 0; i < node->getNumberOfSubclouds(); ++i) {
 			boxCountingLogarithm[i].resize(MAX_BOX_COUNTING_RESOLUTION);
 		}
 
-		std::vector<double> squareDimVectorInverseLogarithm;
-		squareDimVectorInverseLogarithm.resize(MAX_BOX_COUNTING_RESOLUTION);
-		for (int i = 0; i < MAX_BOX_COUNTING_RESOLUTION; ++i) {
-			double squareDimValue = 1 / log(squareDimVector[i]);
-			if (squareDimValue == INFINITY) {
-				squareDimValue = 0;
-			}
-			squareDimVectorInverseLogarithm[i] = squareDimValue;
-		}
-
-		for (int i = 0; i < _numberOfSubclouds; ++i) {
+		for (int i = 0; i < node->getNumberOfSubclouds(); ++i) {
+			auto BCD = node->getBoxCounting();
 			for (int j = 0; j < MAX_BOX_COUNTING_RESOLUTION; ++j) {
-				boxCountingLogarithm[i][j] = (double)log(_boxCounting[i][j]);
+				boxCountingLogarithm[i][j] = (double)log(BCD[i][j]);
 			}
 		}
 
-		double slope0 = getSlope(squareDimVectorInverseLogarithm, computeLinearRegression(squareDimVectorInverseLogarithm, boxCountingLogarithm[0]));
-		double slope1 = getSlope(squareDimVectorInverseLogarithm, computeLinearRegression(squareDimVectorInverseLogarithm, boxCountingLogarithm[1]));
-
-		_fractalDim0 = slope0;
-		_fractalDim1 = slope1;
-		_differenceBetweenClouds = abs(slope0 - slope1);
+		const std::vector<double>& squareInverseLogarithm = node->getSquareDimVectorInverseLogarithm();
+		double slope0 = getSlope(squareInverseLogarithm, computeLinearRegression(squareInverseLogarithm, boxCountingLogarithm[0]));
+		double slope1 = getSlope(squareInverseLogarithm, computeLinearRegression(squareInverseLogarithm, boxCountingLogarithm[1]));
+		node->setFD0(slope0);
+		node->setFD1(slope1);
+		node->setDiff(abs(slope0 - slope1));
 
 	}
+
+
+	
 
 	//Creation of the scalar field with the fractal dimension differences
 	ccScalarField* sf = new ccScalarField("Fractal Dimension Differences");
 
-	int sfIdx0 = _clouds[0]->addScalarField(sf);
-	_clouds[0]->setCurrentScalarField(sfIdx0);
-	_clouds[0]->setCurrentDisplayedScalarField(sfIdx0);
-	_clouds[0]->enableScalarField();
 
-	for (int i = 0; i < _clouds[0]->size(); ++i) {
-		_clouds[0]->setPointScalarValue(i, _differenceBetweenClouds);
+
+	int sfIdx0 = cloud0->addScalarField(sf);
+	cloud0->setCurrentScalarField(sfIdx0);
+	cloud0->setCurrentDisplayedScalarField(sfIdx0);
+	cloud0->enableScalarField();
+
+	for (int i = 0; i < cloud0->size(); ++i) {
+		cloud0->setPointScalarValue(i, node->getDifferenceBetweenClouds());
 	}
-	//_clouds[0]->showSF(true);
+	sf->computeMinAndMax();
+	cloud0->showSF(true);
 
-	int sfIdx1 = _clouds[1]->addScalarField(sf);
-	_clouds[1]->enableScalarField();
-	_clouds[1]->setCurrentScalarField(sfIdx1);
-	_clouds[1]->setCurrentDisplayedScalarField(sfIdx0);
+	int sfIdx1 = cloud1->addScalarField(sf);
+	cloud1->enableScalarField();
+	cloud1->setCurrentScalarField(sfIdx1);
+	cloud1->setCurrentDisplayedScalarField(sfIdx0);
 
-	for (int i = 0; i < _clouds[1]->size(); ++i) {
-		_clouds[1]->setPointScalarValue(i, _differenceBetweenClouds);
+	for (int i = 0; i < cloud1->size(); ++i) {
+		cloud1->setPointScalarValue(i, node->getDifferenceBetweenClouds());
 	}
+	sf->computeMinAndMax();
+	cloud1->showSF(true);
 
-	for (auto* child : _childrens) {
-		child->computeCountingBox();
-	}
+	
 }
 
-/**
-*	@brief Function to apply the couning box algorithm to the children and recursively (preorder)
-*/
-void Node::computeCountingBoxChildren()
-{
-	for (auto* child : _childrens) {
-		child->computeCountingBox();
-		child->computeCountingBoxChildren();
-	}
-}
 
 /**
 *	@brief Function to compute a linear regression with the data obtained from the counting box algorithm
@@ -396,8 +545,8 @@ const std::vector<double>& Node::computeLinearRegression(const std::vector<doubl
 	a = (sumY - b * sumX) / MAX_BOX_COUNTING_RESOLUTION;
 	
 	std::vector<double> yValues;
-	for (double x0 : x) {
-		yValues.push_back(a + (b * x0));
+	for (int i = 0; i < x.size(); ++i) {
+		yValues.push_back(a + (b * x[i]));
 	}
 	return yValues;
 
@@ -442,53 +591,65 @@ int Node::getLevel()
 	return _level;
 }
 
-/**
-*	@brief Store the poins from both clouds from the node in the file system
-*/
-void Node::storePoints(int index)
+unsigned int Node::getNumberOfSubclouds()
 {
-	if ((_clouds[0]->size() > 0) && (_clouds[1]->size() > 0)) 
-	{
-		LASheader header;
-		header.x_scale_factor = 0.1;
-		header.y_scale_factor = 0.01;
-		header.z_scale_factor = 0.001;
-		header.x_offset = 1000.0;
-		header.y_offset = 1000.0;
-		header.z_offset = 1000.0;
-		header.point_data_format = 3;
-		header.point_data_record_length = 36;
+	return _numberOfSubclouds;
+}
 
-		LASwriteOpener laswriteopener;
-		LASwriter* laswriter;
+const std::vector<std::vector<unsigned int>>& Node::getBoxCounting()
+{
+	return _boxCounting;
+}
 
+const std::vector<double>& Node::getSquareDimVectorInverseLogarithm()
+{
+	return _squareDimVectorInverseLogarithm;
+}
 
-		LASpoint point;
-		point.init(&header, header.point_data_format, header.point_data_record_length, 0);
+const double& Node::getSquareDim()
+{
+	return _squareDim;
+}
 
-		for (int i = 0; i < _numberOfSubclouds; ++i) {
-			std::string route = "C:\\Users\\UJA\\Desktop\\Octrees_3\\" + std::to_string(index);
-			fs::create_directory(route);
-			std::string filename = route + "\\Cloud_" + std::to_string(i) + ".laz";
-			laswriteopener.set_file_name(filename.c_str());
-			laswriter = laswriteopener.open(&header);
+void Node::setFD0(double FD)
+{
+	_fractalDim0 = FD;
+}
 
-			for (int j = 0; j < _clouds[i]->size(); ++j) {
+void Node::setFD1(double FD)
+{
+	_fractalDim1 = FD;
+}
 
-				point.set_x(_clouds[i]->getPoint(j)->x);
-				point.set_y(_clouds[i]->getPoint(j)->y);
-				point.set_z(_clouds[i]->getPoint(j)->z);
-				U16 rgbcolor[3] = { _clouds[i]->getPointColor(j).r * 256, _clouds[i]->getPointColor(j).g * 256, _clouds[i]->getPointColor(j).b * 256 };
+void Node::setDiff(double diff)
+{
+	_differenceBetweenClouds = diff;
+}
 
-				point.set_RGB(rgbcolor);
+void Node::setComparable(bool comnparable)
+{
+	_areComparable = true;
+}
 
-				laswriter->write_point(&point);
-				laswriter->update_inventory(&point);
-			}
+void Node::setBoxCountingValue(int cloud, int position, unsigned int value)
+{
+	_boxCounting[cloud][position] = value;
+}
 
-			laswriter->close();
-			delete laswriter;
+void Node::setSquareDimVectorInverseLogarithmValue(int position, double value)
+{
+	_squareDimVectorInverseLogarithm[position] = value;
+}
 
-		}
-	}
+const unsigned int& Node::getBoxCountingValue(Node* node, int cloud, int position)
+{
+	const std::vector<std::vector<unsigned int> >& BCDvector = node->getBoxCounting();
+	unsigned int value = BCDvector[cloud][position];
+	return value;
+}
+
+const double& Node::getSquareDimVectorInverseLogarithmValue(Node* node, int position)
+{
+	const std::vector<double> squareDimVectorInverseLogarithm = node->getSquareDimVectorInverseLogarithm();
+	return squareDimVectorInverseLogarithm[position];
 }

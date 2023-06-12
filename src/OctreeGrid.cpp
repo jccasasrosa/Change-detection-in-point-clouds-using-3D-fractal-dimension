@@ -19,9 +19,11 @@ OctreeGrid::OctreeGrid()
 /**
 *	@brief Parameterized constructor with the cell size
 */
-OctreeGrid::OctreeGrid(float cellSize)
+OctreeGrid::OctreeGrid(float cellSize, int minimumNumberOfPointsPerNode, int maxDepthLevel)
 {
 	_cellSize = cellSize;
+	_minimumNumberOfPointsPerNode = minimumNumberOfPointsPerNode;
+	_maxDepthLevel = maxDepthLevel;
 	_octreeButtonToggled = false;
 	_nodeButtonToggled = false;
 	_polilynesCreated = false;
@@ -33,8 +35,8 @@ OctreeGrid::OctreeGrid(float cellSize)
 */
 void OctreeGrid::computeBoundingBox(const std::vector<glm::vec3>& pointsPositions)
 {
-	_boundingBox.push_back(glm::vec3(FLT_MAX, FLT_MAX, FLT_MAX));	//Min values
-	_boundingBox.push_back(glm::vec3(FLT_MIN, FLT_MIN, FLT_MIN));	//Max values
+	_boundingBox.push_back(glm::vec3(DBL_MAX, DBL_MAX, DBL_MAX));	//Min values
+	_boundingBox.push_back(glm::vec3(DBL_MIN, DBL_MIN, DBL_MIN));	//Max values
 
 	for (glm::vec3 point : pointsPositions) {
 
@@ -63,20 +65,20 @@ void OctreeGrid::computeBoundingBox(const std::vector<glm::vec3>& pointsPosition
 }
 
 /**
-*	@brief Generation of the octree grid instance and processing of the points from each file
+*	@brief Generation of the octree grid instance and processing of the points from each cloud
 */
-const std::string& OctreeGrid::loadOctreeGrid(const std::vector<glm::vec3>& pointsPositions, const std::vector<glm::vec3>& pointsColors,
+void OctreeGrid::loadOctreeGrid(const std::vector<glm::vec3>& pointsPositions, const std::vector<glm::vec3>& pointsColors,
 	const unsigned int& numberOfClouds, const unsigned int& subcloud)
 {
-	
+
 	for (int i = 0; i < pointsPositions.size(); ++i) {
 
 		const glm::vec3& pointPosition = pointsPositions[i];
 		const glm::vec3& pointColor = pointsColors[i];
 
-		glm::ivec3 key(pointPosition.x / _cellSize, pointPosition.y / _cellSize, pointPosition.z / _cellSize);
+		glm::ivec3 key(pointPosition / _cellSize);
 		if (_octrees.find(key) == _octrees.end()) {
-			_octrees[key] = new Octree(new Node(NULL, _cellSize, numberOfClouds, 1), _cellSize, key);
+			_octrees[key] = new Octree(new Node(NULL, _cellSize, numberOfClouds, 1, _minimumNumberOfPointsPerNode, _maxDepthLevel, key, (_cellSize/2)), _cellSize, key, _minimumNumberOfPointsPerNode, _maxDepthLevel);
 		}
 
 		_indexStructure[key].push_back(i);
@@ -99,12 +101,39 @@ const std::string& OctreeGrid::loadOctreeGrid(const std::vector<glm::vec3>& poin
 	for (auto& values : _octrees) {
 		values.second->setAppinterface(_appInterface);
 		values.second->addPointsToCloud(newPointMap[values.first], newColorMap[values.first], subcloud);
+		values.second->setRootNodeCorners();
 	}
 
 	_indexStructure.clear();
+	
+	
+	/**
+	std::unordered_map< glm::ivec3, std::vector<glm::vec3>, glm::ivec3Hash > newPointMap, newColorMap;
+	glm::ivec3 key;
+	// Repartir puntos por celdas
+	for (int i = 0; i < pointsPositions.size(); ++i) {
+		glm::vec3 pointPosition = pointsPositions[i];
+		glm::vec3 pointColor = pointsColors[i];
 
-	std::string size = "Octree grid size: " + std::to_string(_octrees.size());
-	return size;
+		key = pointPosition / _cellSize;
+
+		newPointMap[key].push_back(pointPosition);
+		newColorMap[key].push_back(pointColor);
+	}
+
+	// Construir octree por celda
+	for (auto& points : newPointMap) {
+		key = points.first;
+
+		Octree* octree = new Octree(new Node(NULL, _cellSize, numberOfClouds, 1, _minimumNumberOfPointsPerNode, _maxDepthLevel, key, (_cellSize / 2)), _cellSize, key, _minimumNumberOfPointsPerNode, _maxDepthLevel);
+		octree->setAppinterface(_appInterface);
+		octree->addPointsToCloud(newPointMap[key], newColorMap[key], subcloud);
+		octree->setRootNodeCorners();
+
+		_octrees[key] = octree;
+	}
+	*/
+	
 	
 }
 
@@ -119,7 +148,7 @@ const std::vector<glm::dvec3>& OctreeGrid::getBoundingBoxVector()
 /**
 *	@brief Get the data structure that contains all the octrees of the grid
 */
-const std::unordered_map<glm::ivec3, Octree*, glm::ivec3Hash>& OctreeGrid::getOctreeGrid()
+const std::unordered_map<glm::ivec3, Octree*, glm::fvec3Hash>& OctreeGrid::getOctreeGrid()
 {
 	return _octrees;
 }
@@ -233,25 +262,50 @@ void OctreeGrid::computeOctreeVisualization()
 void OctreeGrid::computeNodeVisualization(Node * node)
 {
 
-	std::vector<Node*> firstLevel;
-	firstLevel.push_back(node);
-	auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, firstLevel[0]->getBoundingBoxVector(), ccColor::Rgba(0, 0, 200, 1));	//BLUE
+	std::vector<glm::dvec3> boundingBoxCorner;
+	glm::dvec3* minCorner = node->getMinCorner();
+	glm::dvec3* maxCorner = node->getMaxCorner();
+	boundingBoxCorner.push_back(*minCorner);
+	boundingBoxCorner.push_back(*maxCorner);
+
+	auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, boundingBoxCorner, ccColor::Rgba(0, 0, 200, 1));	//BLUE
+
 
 	std::vector<Node*> childrenNodes;
-	childrenNodes = node->getChildrens();
+	childrenNodes = *node->getChildrens();
 
 	if (childrenNodes.size() > 0) {
-		for (auto child : childrenNodes) {
-			if (child->getLevel() == 2) {
-				auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, child->getBoundingBoxVector(), ccColor::Rgba(244, 194, 194, 1));	//PINK
-			}
-			else if (child->getLevel() == 3) {
-				auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, child->getBoundingBoxVector(), ccColor::Rgba(250, 0, 0, 1));	//RED
-			}
-			else {
-				auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, child->getBoundingBoxVector(), ccColor::Rgba(0, 255, 0, 1));	//GREEN
-			}
-			computeNodeVisualization(child);
+		for (int i = 0; i < childrenNodes.size(); ++i) {
+			computeChildVisualization(childrenNodes[i]);
+			
+		}
+	}
+}
+
+void OctreeGrid::computeChildVisualization(Node* node)
+{
+	std::vector<glm::dvec3> boundingBoxCornerChild;
+	glm::dvec3* minCornerChild = node->getMinCorner();
+	glm::dvec3* maxCornerChild = node->getMaxCorner();
+	boundingBoxCornerChild.push_back(*minCornerChild);
+	boundingBoxCornerChild.push_back(*maxCornerChild);
+
+	if (node->getLevel() == 2) {
+		auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, boundingBoxCornerChild, ccColor::Rgba(244, 194, 194, 1));	//PINK
+	}
+	else if (node->getLevel() == 3) {
+		auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, boundingBoxCornerChild, ccColor::Rgba(250, 0, 0, 1));	//RED
+	}
+	else {
+		auxComputeVisualization(&_nodesAuxCloud, &_nodesPolilynes, boundingBoxCornerChild, ccColor::Rgba(0, 255, 0, 1));	//GREEN
+	}
+
+	std::vector<Node*> childrenNodes;
+	childrenNodes = *node->getChildrens();
+
+	if (childrenNodes.size() > 0) {
+		for (int i = 0; i < childrenNodes.size(); ++i) {
+			computeChildVisualization(childrenNodes[i]);
 		}
 	}
 }
@@ -285,6 +339,7 @@ void OctreeGrid::computeCountingBox()
 	QThreadPool::globalInstance()->setMaxThreadCount(maxThreadCount);
 	QtConcurrent::blockingMap(_octreesForParallelization, callCountingBox);
 
+
 }
 
 /**
@@ -292,8 +347,8 @@ void OctreeGrid::computeCountingBox()
 */
 void OctreeGrid::changeOctreeVisibility(const bool& state)
 {
-	for (auto octreePolilyne : _octreesPolilynes) {
-		octreePolilyne->setVisible(state);
+	for (int i = 0; i < _octreesPolilynes.size(); ++i) {
+		_octreesPolilynes[i]->setVisible(state);
 	}
 	_appInterface->redrawAll();
 }
@@ -303,20 +358,9 @@ void OctreeGrid::changeOctreeVisibility(const bool& state)
 */
 void OctreeGrid::changeNodesVisibility(const bool& state)
 {
-	for (auto nodePolilyne : _nodesPolilynes) {
-		nodePolilyne->setVisible(state);
+	for (int i = 0; i < _nodesPolilynes.size(); ++i) {
+		_nodesPolilynes[i]->setVisible(state);
 	}
 	_appInterface->redrawAll();
 }
 
-/**
-*	@brief Store the poins from all octrees in the file system
-*/
-void OctreeGrid::storeOctrees()
-{
-	int counter = 1;
-	for (auto octree : _octrees) {
-		octree.second->storeOctree(counter);
-		++counter;
-	}
-}

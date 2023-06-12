@@ -12,12 +12,13 @@
 #include "..\include\ActionA.h"
 #include <qelapsedtimer.h>
 
+
 #define LOAD_INTERVAL 100000
 
 namespace TemporalSeriesPluginAction
 {
 
-	void performActionA( ccMainAppInterface *appInterface, TemporalSeriesPluginInterface* temporalSeriesPluginInterface)
+	void performActionA( ccMainAppInterface *appInterface, TemporalSeriesPluginInterface* temporalSeriesPluginInterface, TemporalSeriesPreviewWindow* temporalSeriesPreviewWindow)
 	{
 		if ( appInterface == nullptr )
 		{
@@ -26,168 +27,177 @@ namespace TemporalSeriesPluginAction
 			
 			return;
 		}
+
+
+		std::vector<ccPointCloud*> comparedClouds;
+
+		const ccHObject::Container& selectedEntities = appInterface->getSelectedEntities();
+		ccPointCloud* myPointCloud{};
+		foreach(auto entity, selectedEntities) {
+			comparedClouds.push_back(static_cast<ccPointCloud*>(entity));
+			myPointCloud = static_cast<ccPointCloud*>(entity);
+		}
+
+		int numberOfCells, minimumOctreeNodePoints, maximumOctreeDepthLevel;
+		float cellSize;
+		bool visualizationChecked;
+
+		//Default values
+		numberOfCells = 1; //100
+		minimumOctreeNodePoints = 1000; //10000
+		maximumOctreeDepthLevel = 3; //6
+		visualizationChecked = true;
 		
-	
-		//File dialog to select files
-		QFileDialog myDialog;
-		myDialog.setWindowTitle("Select the files of the temporal series");
-		//myDialog.setDirectory("C:\\Users\\UJA\\Desktop\\Experimentacion");
-		myDialog.setFileMode(QFileDialog::ExistingFiles);
-		myDialog.setNameFilters(QStringList() << "*.laz *.las");
-		myDialog.exec();
+		temporalSeriesPreviewWindow->setDefaultNumberOfCells(numberOfCells);
+		temporalSeriesPreviewWindow->setDefaultMinimumOctreeNodePoints(minimumOctreeNodePoints);
+		temporalSeriesPreviewWindow->setDefaultMaximumOctreeDepthLevel(maximumOctreeDepthLevel);
+		int result = temporalSeriesPreviewWindow->exec();
 
-		//Obtention of the files
-		QStringList files = myDialog.selectedFiles();
-		unsigned int numberOfFiles = files.size();
-		QString message;
+		//QDialog::Accepted (1) or rejected (0)
+		if (result == QDialog::Accepted) {
 
-		//Creation of the reader object
-		LASreaderLAS reader;
+			appInterface->dispToConsole("[Temporal Series Plugin] Comparison accepted", ccMainAppInterface::STD_CONSOLE_MESSAGE);
 
-		//Creation of the spatial structure
-		_spatialStructure = new OctreeGrid(CELL_SIZE);
-		_spatialStructure->setAppinterface(appInterface);
-
-		//Definition of points of each file
-		long totalPoints = 0;
-
-		//Structure for retrieving times
-		QElapsedTimer countingBoxTimer;
-		qint64 distTime_ms = 0;
-
-		//Iterating through the files and generating the octree
-		for (int i = 0; i < numberOfFiles; ++i) {
-
-			std::vector<glm::vec3> pointsPosition;
-			std::vector<glm::vec3> pointsColor;
-
-			QString file = files[i];
-
-			reader.open(file.toStdString().c_str());
-			long numberOfPoints = reader.header.number_of_point_records;
-			totalPoints += numberOfPoints;
-			message = QString::number(numberOfPoints);
-			appInterface->dispToConsole("Number of points records: " + message, ccMainAppInterface::STD_CONSOLE_MESSAGE);
-
-			LASpoint& point = reader.point;
-			unsigned int count = 0;
-
-			//Simple window to show the progress of the reading process
-			QProgressDialog progressDialog(file, NULL, 0, numberOfPoints);
-			progressDialog.setWindowTitle("Loading point cloud ...");
-			progressDialog.setMinimumWidth(500);
-			progressDialog.setMinimumHeight(200);
-			progressDialog.setMinimumDuration(0);
+			numberOfCells = temporalSeriesPreviewWindow->getNumberOfCells();
+			minimumOctreeNodePoints = temporalSeriesPreviewWindow->getMinimumOctreeNodePoints();
+			maximumOctreeDepthLevel = temporalSeriesPreviewWindow->getMaximumOctreeDepthLevel();
+			visualizationChecked = temporalSeriesPreviewWindow->visualizationChecked();
 
 
-			while (reader.read_point()) {
+			computePreviewParameters(&numberOfCells, &minimumOctreeNodePoints, &maximumOctreeDepthLevel, comparedClouds, &cellSize, appInterface);
 
-				LASpoint& point = reader.point;
-				float coordX = point.get_x();
-				float coordY = point.get_y();
-				float coordZ = point.get_z();
-				CCVector3 vector(coordX, coordY, coordZ);
+			appInterface->dispToConsole(QString("[Counting Box] Parameters for the comparison: [%1 cells, %2 minimum octree node points, %3 maximum octree depth level] (%4 cell size) ").arg(numberOfCells).arg(minimumOctreeNodePoints).arg(maximumOctreeDepthLevel).arg(cellSize), ccMainAppInterface::STD_CONSOLE_MESSAGE);
 
-				int colorR = point.get_R() / 256;
-				int colorG = point.get_G() / 256;
-				int colorB = point.get_B() / 256;
-				ccColor::Rgb color(colorR, colorG, colorB);
+			_spatialStructure = new OctreeGrid(cellSize, minimumOctreeNodePoints, maximumOctreeDepthLevel);
+			_spatialStructure->setAppinterface(appInterface);
+
+			//Definition of points of each file
+			long totalPoints = comparedClouds[0]->size() + comparedClouds[1]->size();
+
+			//Structure for retrieving times
+			QElapsedTimer countingBoxTimer;
+			qint64 distTime_ms = 0;
+			countingBoxTimer.start();
+
+			shiftCloudsOrigin(comparedClouds,appInterface);
+
+			//Iterating through the clouds and generating the octree	
+			for (int i = 0; i < comparedClouds.size(); ++i) {
+
+				std::vector<glm::vec3> pointsPosition;
+				std::vector<glm::vec3> pointsColor;
 
 
-				pointsPosition.push_back(glm::vec3(coordX, coordY, coordZ));
-				pointsColor.push_back(glm::vec3(colorR, colorG, colorB));
+				int pointCloudSize = comparedClouds[i]->size();
 
-				++count;
-				if (count % LOAD_INTERVAL == 0) {
-					progressDialog.setValue(count);
-					QApplication::processEvents();
+
+
+				for (int j = 0; j < pointCloudSize; ++j) {
+
+					float coordX = comparedClouds[i]->getPoint(j)->x;
+					float coordY = comparedClouds[i]->getPoint(j)->y;
+					float coordZ = comparedClouds[i]->getPoint(j)->z;
+
+					int colorR = comparedClouds[i]->getPointColor(j).r;
+					int colorG = comparedClouds[i]->getPointColor(j).g;
+					int colorB = comparedClouds[i]->getPointColor(j).b;
+
+
+					pointsPosition.push_back(glm::vec3(coordX, coordY, coordZ));
+					pointsColor.push_back(glm::vec3(colorR, colorG, colorB));
+
 				}
+
+
+				_spatialStructure->loadOctreeGrid(pointsPosition, pointsColor, comparedClouds.size(), i);
+				distTime_ms += countingBoxTimer.restart();
+
 			}
 
-			progressDialog.close();
 
-			appInterface->dispToConsole("Computing bounding box of the Octree Grid", ccMainAppInterface::STD_CONSOLE_MESSAGE);
-			appInterface->dispToConsole("Loading octree grid", ccMainAppInterface::STD_CONSOLE_MESSAGE);
-
-			countingBoxTimer.start();
-			QString numberOfNodes = QString(_spatialStructure->loadOctreeGrid(pointsPosition, pointsColor, numberOfFiles, i).c_str());
+			//Finished reading, completing subdivision of each octree in the octree grid
+			countingBoxTimer.restart();
+			_spatialStructure->completeSubdivide();
 			distTime_ms += countingBoxTimer.restart();
-			appInterface->dispToConsole(numberOfNodes, ccMainAppInterface::STD_CONSOLE_MESSAGE);	
-		}
-		
-		//Finished reading, completing subdivision of each octree in the octree grid
-		countingBoxTimer.restart();
-		_spatialStructure->completeSubdivide();
-		distTime_ms += countingBoxTimer.restart();
-		appInterface->dispToConsole(QString("[Counting Box] Fractal Dimension Octree Grid Generation: %1 s.").arg(static_cast<double>(distTime_ms) / 1000.0, 0, 'f', 3), ccMainAppInterface::STD_CONSOLE_MESSAGE);
+			appInterface->dispToConsole(QString("[Counting Box] Fractal Dimension Octree Grid Generation: %1 s.").arg(static_cast<double>(distTime_ms) / 1000.0, 0, 'f', 2), ccMainAppInterface::STD_CONSOLE_MESSAGE);
 
-		//Computing visualization structures and algorithm
-		appInterface->setGlobalZoom();
-		_spatialStructure->computeOctreeVisualization();
-		_spatialStructure->fillOctreesVector();
-		distTime_ms = 0;
-		countingBoxTimer.restart();
-		_spatialStructure->computeCountingBox();
-		distTime_ms += countingBoxTimer.restart();
-		_spatialStructure->storeOctrees();
 
-		appInterface->dispToConsole(QString("[Counting Box] Fractal Dimension Differences Computation: %1 s.").arg(static_cast<double>(distTime_ms) / 1000.0, 0, 'f', 3), ccMainAppInterface::STD_CONSOLE_MESSAGE);
+			//Computing visualization structures and algorithm
+			appInterface->setGlobalZoom();
+			_spatialStructure->fillOctreesVector();
+			distTime_ms = 0;
+			countingBoxTimer.restart();
+			_spatialStructure->computeCountingBox();
+			distTime_ms += countingBoxTimer.restart();
+			appInterface->dispToConsole(QString("[Counting Box] Fractal Dimension Differences Computation: %1 s.").arg(static_cast<double>(distTime_ms) / 1000.0, 0, 'f', 2), ccMainAppInterface::STD_CONSOLE_MESSAGE);
 
-		//Creating final displayed cloud with its own scalar field
-		ccPointCloud* resultingCloud = new ccPointCloud();
-		resultingCloud->setName("Fractal Dimension Differences Cloud");
-		resultingCloud->reserve(totalPoints);
-		resultingCloud->reserveTheRGBTable();
-		resultingCloud->toggleColors();
-		resultingCloud->setVisible(true);
 
-		ccScalarField* sf = new ccScalarField("Fractal Dimension Differences");
-		int sfIdx = resultingCloud->addScalarField(sf);
-		resultingCloud->setCurrentScalarField(sfIdx);
-		resultingCloud->setCurrentDisplayedScalarField(sfIdx);
-		resultingCloud->enableScalarField();
+			//Creating final displayed cloud with its own scalar field
+			ccPointCloud* resultingCloud = new ccPointCloud();
+			resultingCloud->setName("Fractal Dimension Differences Cloud");
+			resultingCloud->reserve(totalPoints);
+			resultingCloud->reserveTheRGBTable();
+			resultingCloud->toggleColors();
+			resultingCloud->setVisible(true);
 
-		ccHObject* root = appInterface->dbRootObject();
-		ccHObject* pChildren = NULL;
+			ccScalarField* sf = new ccScalarField("Fractal Dimension Differences");
+			int sfIdx = resultingCloud->addScalarField(sf);
+			resultingCloud->setCurrentScalarField(sfIdx);
+			resultingCloud->setCurrentDisplayedScalarField(sfIdx);
+			resultingCloud->enableScalarField();
 
-		ScalarType maxValue = 0;
-		for (int i = 0; i < root->getChildrenNumber(); i++)
-		{
-			pChildren = root->getChild(i);
-			if (pChildren && pChildren->isKindOf(CC_TYPES::POINT_CLOUD))
+			ccHObject* root = appInterface->dbRootObject();
+			ccHObject* pChildren = NULL;
+
+			/** In order to not assign he maximum value
+			ScalarType maxValue = 0;
+
+			for (int i = 0; i < root->getChildrenNumber(); i++)
 			{
-				ccPointCloud* originalCloud = (ccPointCloud*)pChildren;
-				
-				if (originalCloud->isVisible()) {
-					for (int i = 0; i < originalCloud->size(); ++i) {
-						ScalarType scalarValue = originalCloud->getPointScalarValue(i);
-						if (scalarValue > maxValue) {
-							maxValue = scalarValue;
+				pChildren = root->getChild(i);
+				if (pChildren && pChildren->isKindOf(CC_TYPES::POINT_CLOUD))
+				{
+					ccPointCloud* originalCloud = (ccPointCloud*)pChildren;
+
+					if (originalCloud->isVisible()) {
+						for (int i = 0; i < originalCloud->size(); ++i) {
+							ScalarType scalarValue = originalCloud->getPointScalarValue(i);
+							if (scalarValue > maxValue) {
+								maxValue = scalarValue;
+							}
+
 						}
 
 					}
-
 				}
 			}
-		}
-		
-		maxValue = ScalarType(20);	//Asignación mayor valor posible
+			*/
 
-		for (int i = 0; i < root->getChildrenNumber(); i++)
-		{
-			pChildren = root->getChild(i);
-			if (pChildren && pChildren->isKindOf(CC_TYPES::POINT_CLOUD))
+			ScalarType maxValue = ScalarType(3);
+
+
+			comparedClouds[0]->setVisible(false);
+			comparedClouds[1]->setVisible(false);
+			
+			for (int i = 0; i < root->getChildrenNumber(); i++)
 			{
+				pChildren = root->getChild(i);
+				if (pChildren && pChildren->isKindOf(CC_TYPES::POINT_CLOUD))
+				{
 					ccPointCloud* originalCloud = (ccPointCloud*)pChildren;
+
 					if (originalCloud->isVisible()) {
+
 						for (int i = 0; i < originalCloud->size(); ++i) {
+
 							auto point = originalCloud->getPoint(i);
 							auto color = originalCloud->getPointColor(i);
 
 							resultingCloud->addPoint(*point);
 							resultingCloud->addColor(color);
 
-							auto scalarValue = originalCloud->getPointScalarValue(i);
+							ScalarType scalarValue = originalCloud->getPointScalarValue(i);
+
 							if (scalarValue == DEFAULT_DIFF_VALUE) {
 								scalarValue = maxValue;
 
@@ -196,63 +206,63 @@ namespace TemporalSeriesPluginAction
 						}
 						originalCloud->setVisible(false);
 					}
-			}
-		}
+				}
 
-		//Setting up the scalar field to be displayed
-		sf->computeMinAndMax();
-		resultingCloud->showSF(true);
-		appInterface->addToDB(resultingCloud);
-		appInterface->refreshAll();
-		
-		temporalSeriesPluginInterface->linkWith(appInterface->getActiveGLWindow());
-		appInterface->registerOverlayDialog(temporalSeriesPluginInterface, Qt::TopLeftCorner);
-		temporalSeriesPluginInterface->start();
+			}
+
+			//Setting up the scalar field to be displayed
+			sf->computeMinAndMax();
+			resultingCloud->showSF(true);
+
+
+			if (visualizationChecked == true) {
+				_spatialStructure->computeOctreeVisualization();
+				temporalSeriesPluginInterface->linkWith(appInterface->getActiveGLWindow());
+				appInterface->registerOverlayDialog(temporalSeriesPluginInterface, Qt::TopLeftCorner);
+				temporalSeriesPluginInterface->start();
+			}
+
+			appInterface->addToDB(resultingCloud);
+			appInterface->refreshAll();
+
+			//	REMOVING
+			/**
+			ccHObject::Container toRemove;
+			for (int i = 0; i < root->getChildrenNumber(); i++)
+			{
+				pChildren = root->getChild(i);
+				if (pChildren && pChildren->isKindOf(CC_TYPES::POINT_CLOUD))
+				{
+					ccPointCloud* originalCloud = (ccPointCloud*)pChildren;
+					if (originalCloud != comparedClouds[0] && originalCloud != comparedClouds[1] && originalCloud != resultingCloud) {
+						toRemove.push_back(pChildren);
+					}
+				}
+			}
+
+			for (auto element : toRemove) {
+				appInterface->removeFromDB(element);
+			}
+			*/
+
+		}
+		else {
+
+			appInterface->dispToConsole("[Temporal Series Plugin] Comparison cancelled", ccMainAppInterface::STD_CONSOLE_MESSAGE);
+		}
 
 	
 		/*** HERE ENDS THE ACTION ***/
 	}
 
-	/**
-	*	@brief Method for creating the bounding box of the octrees and the nodes
-	*/
-	void drawBoundingBox(const std::vector<glm::vec3>& boundingBox, ccMainAppInterface* appInterface, const ccColor::Rgba& color, const bool& enable)
-	{
-		std::vector<glm::vec3> octreeGridBoundingBox = boundingBox;
-
-
-		ccPointCloud* auxCloud = new ccPointCloud();
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[0].z));
-
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[1].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[0].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[1].y, octreeGridBoundingBox[1].z));
-		auxCloud->addPoint(CCVector3(octreeGridBoundingBox[0].x, octreeGridBoundingBox[0].y, octreeGridBoundingBox[1].z));
-		ccPolyline* polyline = new ccPolyline(auxCloud);
-		polyline->addPointIndex(0, 16);
-		polyline->setColor(color);
-		polyline->toggleColors();
-		polyline->setWidth(5);
-		polyline->setVisible(false);
-		appInterface->addToDB(polyline);
-	}
+	
 
 	/**
 	*	@brief Enable or disable the octrees visualization
 	*/
 	void octreeButtonAction(ccMainAppInterface* appInterface)
 	{
+
 		_spatialStructure->changeOctreeState();
 	}
 
@@ -263,4 +273,47 @@ namespace TemporalSeriesPluginAction
 	{
 		_spatialStructure->changeNodeState();
 	}
+
+	/**
+	*	@brief Close the UI
+	*/
+	void closeButtonAction(ccMainAppInterface* appInterface, TemporalSeriesPluginInterface* temporalSeriesPluginInterface)
+	{
+		temporalSeriesPluginInterface->stop(true);
+		appInterface->unregisterOverlayDialog(temporalSeriesPluginInterface);
+	}
+
+	void computePreviewParameters(int* numberOfCells, int* minimumOctreeNodePoints, int* maximumOctreeDepthLevel,
+		const std::vector<ccPointCloud*>& comparedClouds, float* cellSize, ccMainAppInterface* appInterface)
+	{
+		int cloudAPoints = comparedClouds[0]->size();
+		int cloudBPoints = comparedClouds[1]->size();
+
+		PointCoordinateType maxBoxDimCloudA = comparedClouds[0]->getBB_recursive().getMaxBoxDim();
+		PointCoordinateType maxBoxDimCloudB = comparedClouds[1]->getBB_recursive().getMaxBoxDim();
+
+		PointCoordinateType maxDimBothClouds = maxBoxDimCloudA > maxBoxDimCloudB ? maxBoxDimCloudA : maxBoxDimCloudB;
+
+	
+		*cellSize = (maxDimBothClouds / *numberOfCells) *1.001;	//Coordinates fitting
+		//*cellSize = *numberOfCells;	//EXPERIMENTATION ONLY
+
+	}
+
+	void shiftCloudsOrigin(std::vector<ccPointCloud*>& comparedClouds, ccMainAppInterface* appInterface) {
+		
+		CCVector3 minCornerCloudA = comparedClouds[0]->getBB_recursive().minCorner();
+		CCVector3 minCornerCloudB = comparedClouds[1]->getBB_recursive().minCorner();
+
+		CCVector3 minCornerBothClouds;
+		minCornerBothClouds.x = minCornerCloudA.x < minCornerCloudB.x ? minCornerCloudA.x : minCornerCloudB.x;
+		minCornerBothClouds.y = minCornerCloudA.y < minCornerCloudB.y ? minCornerCloudA.y : minCornerCloudB.y;
+		minCornerBothClouds.z = minCornerCloudA.z < minCornerCloudB.z ? minCornerCloudA.z : minCornerCloudB.z;
+
+
+		comparedClouds[0]->translate(CCVector3(-minCornerBothClouds.x, -minCornerBothClouds.y, -minCornerBothClouds.z));
+		comparedClouds[1]->translate(CCVector3(-minCornerBothClouds.x, -minCornerBothClouds.y, -minCornerBothClouds.z));
+
+	}
+
 }

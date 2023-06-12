@@ -19,6 +19,7 @@
 
 #include "ccStdPluginInterface.h"
 #include <TemporalSeriesPluginInterface.h>
+#include <TemporalSeriesPreviewWindow.h>
 #include <ccPointCloud.h>
 #include <ccPolyline.h>
 
@@ -37,11 +38,14 @@ public:
 	void onNewSelection( const ccHObject::Container &selectedEntities ) override;
 	QList<QAction *> getActions() override;
 
+	void closeInterface();
 
 	
 private:
 
 	QAction* m_action;
 	TemporalSeriesPluginInterface* _temporalSeriesPluginInterface;
+	TemporalSeriesPreviewWindow* _temporalSeriesPreviewWindow;
+	ccHObject::Container m_selectedEntities;
 
 };

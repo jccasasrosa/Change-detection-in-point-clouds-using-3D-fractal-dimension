@@ -7,4 +7,5 @@ target_sources( ${PROJECT_NAME}
 		${CMAKE_CURRENT_LIST_DIR}/OctreeGrid.cpp
 		${CMAKE_CURRENT_LIST_DIR}/TemporalSeriesPlugin.cpp
 		${CMAKE_CURRENT_LIST_DIR}/TemporalSeriesPluginInterface.cpp
+		${CMAKE_CURRENT_LIST_DIR}/TemporalSeriesPreviewWindow.cpp
 )
