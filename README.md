@@ -1,6 +1,7 @@
 # Change detection in point clouds using 3D fractal dimension
 
-Source code implemented as a **CloudCompare** plugin.
+Source code implemented as a **CloudCompare** plugin. Submitted to Multimedia Tools and Applications.
+In order to use the plugin all you need is to copy the .dll file in the plugins folder located in CloudCompare installation directory-
 
 
 # Authors
